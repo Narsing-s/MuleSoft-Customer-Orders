@@ -8,7 +8,7 @@ The GitHub Actions workflow `.github/workflows/generate-customer-order-files.yml
 - `customers_orders.xlsx` — Customers and Orders worksheets.
 - `customers_orders.xml` — well-formed CustomerOrders XML.
 
-The workflow validates both files, publishes the latest copies under `generated-files/` in the repository, and uploads the `customer-order-files` artifact (retained for 7 days). Generated-file commits are ignored by the workflow's push trigger, so they do not create a workflow loop.
+The workflow validates both files, publishes the latest copies under `generated-files/`, and also stores a timestamped Excel/XML pair under `generated-files/archive/` for every successful generation. The archive manifest tracks every version. The `customer-order-files` artifact contains the latest pair and is retained for 7 days. Generated-file commits are ignored by the workflow's push trigger, so they do not create a workflow loop.
 
 ## Automatically save generated files to your Windows PC
 
@@ -16,9 +16,9 @@ GitHub-hosted runners cannot write directly to your PC's `C:\` drive. To copy th
 
 1. Open [install_local_sync.bat](https://raw.githubusercontent.com/Narsing-s/MuleSoft-Customer-Orders/main/install_local_sync.bat) and save it to your PC.
 2. Double-click `install_local_sync.bat`. Approve the normal Windows script prompt if shown.
-3. The installer creates a Windows Task Scheduler task named `MuleSoftCustomerOrdersCloudSync`, performs an initial sync, and checks GitHub every 2 minutes.
+3. The installer creates a Windows Task Scheduler task named `MuleSoftCustomerOrdersCloudSync`, performs an initial sync, and checks GitHub every 2 minutes. The sync task downloads any archive versions missing locally, so generations created while the PC is offline are recovered after it reconnects.
 
-The two files are saved to:
+The latest two files are saved to:
 
 `C:\Users\91938\Desktop\mulesoft file processing input data\customers_orders.xlsx`
 
@@ -31,7 +31,7 @@ To remove the task, run:
 schtasks.exe /Delete /TN MuleSoftCustomerOrdersCloudSync /F
 ```
 
-**Timing:** cloud generation runs every 5 minutes (GitHub's minimum scheduled interval); the Windows task checks for the latest published files every 2 minutes. Therefore, new files appear locally shortly after the next successful cloud generation and sync check.
+**Timing:** cloud generation runs every 5 minutes (GitHub's minimum scheduled interval); the Windows task checks for updates every 2 minutes. If the PC is offline, GitHub continues generating and retaining timestamped versions. When the PC reconnects and the user is logged in, the sync task downloads all missing archive pairs as well as the latest pair. Keep the PC powered on and connected long enough for a large backlog to finish downloading.
 
 ## Optional: process the files with MuleSoft and MySQL
 
