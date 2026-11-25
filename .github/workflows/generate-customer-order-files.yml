@@ -1,6 +1,9 @@
 name: Generate Customer and Order Files
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     # GitHub Actions scheduled workflows have a 5-minute minimum.
     # Offset from minute zero to reduce congestion at the top of the hour.
