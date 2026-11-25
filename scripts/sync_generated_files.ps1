@@ -6,14 +6,11 @@ param(
 $ErrorActionPreference = 'Stop'
 $taskName = 'MuleSoftCustomerOrdersCloudSync'
 $inputFolder = 'C:\Users\91938\Desktop\mulesoft file processing input data'
-$archiveFolder = Join-Path $inputFolder 'archive'
 $logFolder = Join-Path $env:LOCALAPPDATA 'MuleSoftCustomerOrders'
 $logFile = Join-Path $logFolder 'cloud-sync.log'
 $baseUrl = 'https://raw.githubusercontent.com/Narsing-s/MuleSoft-Customer-Orders/main/generated-files'
-$files = @('customers_orders.xlsx', 'customers_orders.xml')
 
 New-Item -ItemType Directory -Path $inputFolder -Force | Out-Null
-New-Item -ItemType Directory -Path $archiveFolder -Force | Out-Null
 New-Item -ItemType Directory -Path $logFolder -Force | Out-Null
 
 function Write-Log([string]$Message) {
@@ -37,19 +34,20 @@ function Test-Xml([string]$Path) {
     return ($document.DocumentElement.LocalName -eq 'CustomerOrders')
 }
 
-function Download-AndValidate([string]$Url, [string]$Destination, [string]$Kind) {
-    $temp = $Destination + '.download'
-    Invoke-WebRequest -Uri $Url -OutFile $temp -UseBasicParsing -TimeoutSec 60
+function Download-AndValidate([string]$Name, [string]$Kind) {
+    $destination = Join-Path $inputFolder $Name
+    $temp = $destination + '.download'
+    Invoke-WebRequest -Uri "$baseUrl/$Name" -OutFile $temp -UseBasicParsing -TimeoutSec 60
     if (-not (Test-Path $temp) -or (Get-Item $temp).Length -lt 20) {
-        throw "Downloaded file is missing or too small: $Url"
+        throw "Downloaded file is missing or too small: $Name"
     }
     if ($Kind -eq 'xlsx' -and -not (Test-Xlsx $temp)) {
-        throw "Downloaded XLSX is not a valid ZIP-based workbook: $Url"
+        throw "Downloaded XLSX is not a valid ZIP-based workbook: $Name"
     }
     if ($Kind -eq 'xml' -and -not (Test-Xml $temp)) {
-        throw "Downloaded XML does not have the expected CustomerOrders root: $Url"
+        throw "Downloaded XML does not have the expected CustomerOrders root: $Name"
     }
-    Move-Item -LiteralPath $temp -Destination $Destination -Force
+    Move-Item -LiteralPath $temp -Destination $destination -Force
 }
 
 if ($Install) {
@@ -62,68 +60,27 @@ if ($Install) {
     Write-Log "Installed scheduled sync. Destination: $inputFolder"
     & $powerShellExe -NoProfile -ExecutionPolicy Bypass -File $scriptPath -Run
     if ($LASTEXITCODE -ne 0) { throw 'Initial sync failed. See cloud-sync.log.' }
-    Write-Host "Automatic cloud-to-PC sync installed. Files are saved to: $inputFolder"
-    Write-Host 'The task checks GitHub every 2 minutes and recovers all missed archive versions.'
+    Write-Host "Automatic cloud-to-PC sync installed. Files are saved directly to: $inputFolder"
+    Write-Host 'The task checks GitHub every 2 minutes. Only the latest Excel and XML files are kept in the destination.'
     exit 0
 }
 
 try {
-    # Always refresh the current/latest pair.
-    Download-AndValidate "$baseUrl/customers_orders.xlsx" (Join-Path $inputFolder 'customers_orders.xlsx') 'xlsx'
-    Download-AndValidate "$baseUrl/customers_orders.xml" (Join-Path $inputFolder 'customers_orders.xml') 'xml'
+    Download-AndValidate 'customers_orders.xlsx' 'xlsx'
+    Download-AndValidate 'customers_orders.xml' 'xml'
 
-    # The manifest lists every cloud generation. Missing pairs are fetched after
-    # the PC reconnects, so versions created while it was offline are recovered.
-    $manifestTemp = Join-Path $archiveFolder 'manifest.json.download'
-    Invoke-WebRequest -Uri "$baseUrl/archive/manifest.json" -OutFile $manifestTemp -UseBasicParsing -TimeoutSec 60
-    $manifest = Get-Content -LiteralPath $manifestTemp -Raw | ConvertFrom-Json
-    if ($manifest.schemaVersion -ne 1 -or $null -eq $manifest.versions) {
-        throw 'Archive manifest has an unsupported or invalid structure.'
+    # Remove the previously-created archive directory only when it is empty.
+    $oldArchive = Join-Path $inputFolder 'archive'
+    if ((Test-Path $oldArchive) -and -not (Get-ChildItem -LiteralPath $oldArchive -Force | Select-Object -First 1)) {
+        Remove-Item -LiteralPath $oldArchive -Force
     }
 
-    $recovered = 0
-    foreach ($version in $manifest.versions) {
-        if ($version.id -notmatch '^\d{8}T\d{12}Z$') {
-            throw "Invalid archive version identifier in manifest: $($version.id)"
-        }
-        $xlsxName = "customers_orders_$($version.id).xlsx"
-        $xmlName = "customers_orders_$($version.id).xml"
-        if ([System.IO.Path]::GetFileName([string]$version.xlsx) -ne $xlsxName -or
-            [System.IO.Path]::GetFileName([string]$version.xml) -ne $xmlName) {
-            throw "Unsafe or unexpected archive filename in manifest for version $($version.id)"
-        }
-
-        $localXlsx = Join-Path $archiveFolder $xlsxName
-        $localXml = Join-Path $archiveFolder $xmlName
-        if ((Test-Path $localXlsx) -and (Test-Path $localXml)) { continue }
-
-        # Download and validate both members before considering this version complete.
-        $tempXlsx = $localXlsx + '.download'
-        $tempXml = $localXml + '.download'
-        try {
-            Invoke-WebRequest -Uri "$baseUrl/$($version.xlsx)" -OutFile $tempXlsx -UseBasicParsing -TimeoutSec 60
-            Invoke-WebRequest -Uri "$baseUrl/$($version.xml)" -OutFile $tempXml -UseBasicParsing -TimeoutSec 60
-            if (-not (Test-Path $tempXlsx) -or -not (Test-Xlsx $tempXlsx)) {
-                throw "Archive XLSX validation failed for version $($version.id)"
-            }
-            if (-not (Test-Path $tempXml) -or -not (Test-Xml $tempXml)) {
-                throw "Archive XML validation failed for version $($version.id)"
-            }
-            Move-Item -LiteralPath $tempXlsx -Destination $localXlsx -Force
-            Move-Item -LiteralPath $tempXml -Destination $localXml -Force
-            $recovered++
-        } finally {
-            if (Test-Path $tempXlsx) { Remove-Item -LiteralPath $tempXlsx -Force -ErrorAction SilentlyContinue }
-            if (Test-Path $tempXml) { Remove-Item -LiteralPath $tempXml -Force -ErrorAction SilentlyContinue }
-        }
-    }
-
-    Move-Item -LiteralPath $manifestTemp -Destination (Join-Path $archiveFolder 'manifest.json') -Force
-    Write-Log "SUCCESS: synchronized latest Excel/XML and recovered $recovered missing archive generation(s). Archive folder: $archiveFolder"
+    Write-Log "SUCCESS: synchronized customers_orders.xlsx and customers_orders.xml directly to $inputFolder"
 } catch {
     Write-Log "ERROR: $($_.Exception.Message)"
-    if (Test-Path (Join-Path $archiveFolder 'manifest.json.download')) {
-        Remove-Item -LiteralPath (Join-Path $archiveFolder 'manifest.json.download') -Force -ErrorAction SilentlyContinue
+    foreach ($name in @('customers_orders.xlsx', 'customers_orders.xml')) {
+        $temp = Join-Path $inputFolder ($name + '.download')
+        if (Test-Path $temp) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
     }
     exit 1
 }
