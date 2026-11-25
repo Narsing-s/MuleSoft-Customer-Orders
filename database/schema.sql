@@ -1,0 +1,26 @@
+CREATE DATABASE IF NOT EXISTS mule_file_processing CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE mule_file_processing;
+
+CREATE TABLE IF NOT EXISTS customers (
+  customer_id VARCHAR(40) NOT NULL PRIMARY KEY,
+  first_name VARCHAR(100) NOT NULL,
+  last_name VARCHAR(100) NOT NULL,
+  email VARCHAR(255) NOT NULL,
+  phone VARCHAR(40),
+  city VARCHAR(120),
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_customers_email (email)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS orders (
+  order_id VARCHAR(40) NOT NULL PRIMARY KEY,
+  customer_id VARCHAR(40) NOT NULL,
+  order_date DATE NOT NULL,
+  status VARCHAR(40) NOT NULL,
+  total_amount DECIMAL(12,2) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_orders_customer_id (customer_id),
+  CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers(customer_id)
+) ENGINE=InnoDB;
