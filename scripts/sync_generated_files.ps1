@@ -48,7 +48,7 @@ function Invoke-DownloadWithRetry([string]$Uri, [string]$OutFile, [int]$MaxAttem
             if (Test-Path -LiteralPath $OutFile) {
                 Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
             }
-            Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing -TimeoutSec 90 -ErrorAction Stop
+            Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing -TimeoutSec 45 -ErrorAction Stop
             if (-not (Test-Path -LiteralPath $OutFile) -or (Get-Item -LiteralPath $OutFile).Length -lt 20) {
                 throw "Download was empty or incomplete: $Uri"
             }
@@ -84,7 +84,14 @@ if ($Install) {
 }
 
 $downloads = @()
+$syncMutex = New-Object System.Threading.Mutex($false, 'Local\MuleSoftCustomerOrdersCloudSync')
+$ownsMutex = $false
 try {
+    $ownsMutex = $syncMutex.WaitOne(0)
+    if (-not $ownsMutex) {
+        Write-Log 'Another synchronization is already running. This scheduled instance was skipped safely.'
+        exit 0
+    }
     $xlsxTemp = Join-Path $logFolder 'customers_orders.xlsx.download'
     $xmlTemp = Join-Path $logFolder 'customers_orders.xml.download'
     $downloads = @($xlsxTemp, $xmlTemp)
@@ -153,4 +160,9 @@ try {
         }
     }
     exit 1
+} finally {
+    if ($ownsMutex) {
+        try { $syncMutex.ReleaseMutex() } catch {}
+    }
+    if ($syncMutex) { $syncMutex.Dispose() }
 }
