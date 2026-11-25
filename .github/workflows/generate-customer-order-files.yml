@@ -52,12 +52,12 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "chore: publish latest customer and order files"
-          file_pattern: generated-files/customers_orders.xlsx generated-files/customers_orders.xml
+          file_pattern: generated-files/
 
       - name: Upload generated Excel and XML files
         uses: actions/upload-artifact@v4
         with:
           name: customer-order-files
-          path: generated-files/
+          path: |\n            generated-files/customers_orders.xlsx\n            generated-files/customers_orders.xml
           if-no-files-found: error
           retention-days: 7
