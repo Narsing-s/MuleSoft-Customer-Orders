@@ -1,52 +1,54 @@
-name: Generate Customer and Order Files
+name: Generate Customer and Order Files on Windows PC
 
 on:
+  schedule:
+    # GitHub scheduled workflows support a 5-minute minimum interval.
+    - cron: "2-59/5 * * * *"
+  workflow_dispatch:
   push:
     branches:
       - main
-  schedule:
-    # GitHub Actions scheduled workflows have a 5-minute minimum.
-    # Offset from minute zero to reduce congestion at the top of the hour.
-    - cron: "2-59/5 * * * *"
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: customer-order-file-generation
+  group: customer-order-file-generation-local
   cancel-in-progress: false
 
 jobs:
   generate-files:
-    name: Generate Excel and XML
-    runs-on: ubuntu-latest
+    name: Write Excel and XML to the Windows input folder
+    # Requires a registered Windows self-hosted runner on the user's PC.
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 5
     env:
-      MULE_INPUT_DIR: ${{ github.workspace }}/generated
+      MULE_INPUT_DIR: 'C:\Users\91938\Desktop\mulesoft file processing input data'
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: generator/requirements.txt
+      - name: Verify Python
+        shell: powershell
+        run: |
+          python --version
+          if ($LASTEXITCODE -ne 0) { throw "Python 3 is required on the Windows runner." }
 
       - name: Install generator dependency
+        shell: powershell
         run: python -m pip install -r generator/requirements.txt
 
-      - name: Generate Excel and XML files
+      - name: Generate Excel and XML directly in the local input folder
+        shell: powershell
         run: python generator/generate_all.py
 
-      - name: Upload generated files
-        uses: actions/upload-artifact@v4
-        with:
-          name: customer-order-files-run-${{ github.run_number }}
-          path: |
-            generated/customers_orders.xlsx
-            generated/customers_orders.xml
-          if-no-files-found: error
-          retention-days: 1
+      - name: Verify generated files
+        shell: powershell
+        run: |
+          $folder = $env:MULE_INPUT_DIR
+          $xlsx = Join-Path $folder "customers_orders.xlsx"
+          $xml = Join-Path $folder "customers_orders.xml"
+          if (!(Test-Path $xlsx)) { throw "Excel file was not generated: $xlsx" }
+          if (!(Test-Path $xml)) { throw "XML file was not generated: $xml" }
+          [xml](Get-Content -Raw $xml) | Out-Null
+          Get-Item $xlsx, $xml | Select-Object FullName, Length, LastWriteTime
