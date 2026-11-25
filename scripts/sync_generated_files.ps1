@@ -44,8 +44,8 @@ if ($Install) {
     if (-not $scriptPath) { throw 'Could not determine the installed sync script path.' }
     $powerShellExe = Join-Path $PSHOME 'powershell.exe'
     $taskCommand = '"' + $powerShellExe + '" -NoProfile -ExecutionPolicy Bypass -File "' + $scriptPath + '" -Run'
-    & "$env:WINDIR\System32\schtasks.exe" /Create /SC MINUTE /MO 2 /TN $taskName /TR $taskCommand /F
-    if ($LASTEXITCODE -ne 0) { throw 'Could not register the two-minute Windows scheduled task.' }
+    & "$env:WINDIR\System32\schtasks.exe" /Create /SC MINUTE /MO 5 /TN $taskName /TR $taskCommand /F
+    if ($LASTEXITCODE -ne 0) { throw 'Could not register the five-minute Windows scheduled task.' }
     Write-Log "Installed scheduled sync. Destination: $inputFolder"
     & $powerShellExe -NoProfile -ExecutionPolicy Bypass -File $scriptPath -Run
     if ($LASTEXITCODE -ne 0) { throw 'Initial sync failed. See cloud-sync.log.' }
