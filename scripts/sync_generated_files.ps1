@@ -39,6 +39,35 @@ function Get-Sha256([string]$Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
 }
 
+
+function Invoke-DownloadWithRetry([string]$Uri, [string]$OutFile, [int]$MaxAttempts = 4) {
+    $delays = @(5, 10, 20, 30)
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
+            # Remove only an incomplete temporary download in the app's log folder.
+            if (Test-Path -LiteralPath $OutFile) {
+                Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+            }
+            Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing -TimeoutSec 90 -ErrorAction Stop
+            if (-not (Test-Path -LiteralPath $OutFile) -or (Get-Item -LiteralPath $OutFile).Length -lt 20) {
+                throw "Download was empty or incomplete: $Uri"
+            }
+            return
+        } catch {
+            $message = $_.Exception.Message
+            if (Test-Path -LiteralPath $OutFile) {
+                Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+            }
+            if ($attempt -ge $MaxAttempts) {
+                throw "Download failed after $MaxAttempts attempts: $Uri. Last error: $message"
+            }
+            $delay = $delays[$attempt - 1]
+            Write-Log "Download attempt $attempt/$MaxAttempts failed for $Uri: $message. Retrying in $delay seconds."
+            Start-Sleep -Seconds $delay
+        }
+    }
+}
+
 if ($Install) {
     $scriptPath = $PSCommandPath
     if (-not $scriptPath) { throw 'Could not determine the installed sync script path.' }
@@ -60,8 +89,8 @@ try {
     $xmlTemp = Join-Path $logFolder 'customers_orders.xml.download'
     $downloads = @($xlsxTemp, $xmlTemp)
 
-    Invoke-WebRequest -Uri "$baseUrl/customers_orders.xlsx" -OutFile $xlsxTemp -UseBasicParsing -TimeoutSec 60
-    Invoke-WebRequest -Uri "$baseUrl/customers_orders.xml" -OutFile $xmlTemp -UseBasicParsing -TimeoutSec 60
+    Invoke-DownloadWithRetry -Uri "$baseUrl/customers_orders.xlsx" -OutFile $xlsxTemp
+    Invoke-DownloadWithRetry -Uri "$baseUrl/customers_orders.xml" -OutFile $xmlTemp
 
     foreach ($path in $downloads) {
         if (-not (Test-Path $path) -or (Get-Item $path).Length -lt 20) {
