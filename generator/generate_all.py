@@ -1,5 +1,8 @@
 from pathlib import Path
+from datetime import datetime, timezone
+import json
 import os
+import shutil
 import xml.etree.ElementTree as ET
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
@@ -25,7 +28,7 @@ ORDERS = [
 def atomic_replace(temp: Path, destination: Path):
     os.replace(temp, destination)
 
-def create_excel():
+def create_excel(destination: Path):
     wb = Workbook()
     ws = wb.active
     ws.title = "Customers"
@@ -46,12 +49,11 @@ def create_excel():
             cell.fill = PatternFill("solid", fgColor="1F4E78")
         for col in sheet.columns:
             sheet.column_dimensions[get_column_letter(col[0].column)].width = min(max(len(str(c.value or "")) for c in col) + 3, 32)
-    dest = INPUT_DIR / "customers_orders.xlsx"
-    temp = INPUT_DIR / "customers_orders.writing.xlsx"
+    temp = destination.with_name(destination.stem + ".writing" + destination.suffix)
     wb.save(temp)
-    atomic_replace(temp, dest)
+    atomic_replace(temp, destination)
 
-def create_xml():
+def create_xml(destination: Path):
     root = ET.Element("CustomerOrders")
     customer_root = ET.SubElement(root, "Customers")
     for row in CUSTOMERS:
@@ -65,19 +67,51 @@ def create_xml():
             ET.SubElement(node, key).text = str(value)
     tree = ET.ElementTree(root)
     ET.indent(tree, space="  ")
-    dest = INPUT_DIR / "customers_orders.xml"
-    temp = INPUT_DIR / "customers_orders.writing.xml"
+    temp = destination.with_name(destination.stem + ".writing" + destination.suffix)
     tree.write(temp, encoding="utf-8", xml_declaration=True)
-    atomic_replace(temp, dest)
+    atomic_replace(temp, destination)
 
 def main():
     INPUT_DIR.mkdir(parents=True, exist_ok=True)
-    (INPUT_DIR / "_archive").mkdir(exist_ok=True)
-    create_excel()
-    create_xml()
-    print(f"Created files in {INPUT_DIR}")
-    print(" - customers_orders.xlsx")
-    print(" - customers_orders.xml")
+    archive_dir = INPUT_DIR / "archive"
+    archive_dir.mkdir(exist_ok=True)
+
+    # One UTC identifier groups the Excel/XML pair from this generation.
+    generated_at = datetime.now(timezone.utc)
+    version_id = generated_at.strftime("%Y%m%dT%H%M%S%fZ")
+    latest_xlsx = INPUT_DIR / "customers_orders.xlsx"
+    latest_xml = INPUT_DIR / "customers_orders.xml"
+    archive_xlsx_name = f"customers_orders_{version_id}.xlsx"
+    archive_xml_name = f"customers_orders_{version_id}.xml"
+    archive_xlsx = archive_dir / archive_xlsx_name
+    archive_xml = archive_dir / archive_xml_name
+
+    create_excel(latest_xlsx)
+    create_xml(latest_xml)
+    shutil.copy2(latest_xlsx, archive_xlsx)
+    shutil.copy2(latest_xml, archive_xml)
+
+    manifest_path = archive_dir / "manifest.json"
+    entries = []
+    if manifest_path.exists():
+        try:
+            entries = json.loads(manifest_path.read_text(encoding="utf-8")).get("versions", [])
+        except (json.JSONDecodeError, AttributeError, TypeError):
+            entries = []
+    entries.append({
+        "id": version_id,
+        "generatedAtUtc": generated_at.isoformat(),
+        "xlsx": f"archive/{archive_xlsx_name}",
+        "xml": f"archive/{archive_xml_name}",
+    })
+    manifest = {"schemaVersion": 1, "versions": entries}
+    temp_manifest = archive_dir / "manifest.writing.json"
+    temp_manifest.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    atomic_replace(temp_manifest, manifest_path)
+
+    print(f"Created latest files in {INPUT_DIR}")
+    print(f"Archived generation {version_id} in {archive_dir}")
+    print(f"Manifest contains {len(entries)} generation(s)")
 
 if __name__ == "__main__":
     main()
