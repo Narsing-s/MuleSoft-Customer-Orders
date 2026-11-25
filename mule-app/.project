@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<projectDescription>
+  <name>mule-customer-orders-file-processing</name>
+  <comment>Customer Orders Excel XML integration</comment>
+  <projects/>
+  <buildSpec><buildCommand><name>org.mule.tooling.core muleBuilder</name><arguments/></buildCommand></buildSpec>
+  <natures><nature>org.mule.tooling.core.muleNature</nature></natures>
+</projectDescription>
