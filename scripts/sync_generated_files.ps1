@@ -68,6 +68,34 @@ function Invoke-DownloadWithRetry([string]$Uri, [string]$OutFile, [int]$MaxAttem
     }
 }
 
+function Invoke-DownloadWithRetry([string]$Uri, [string]$OutFile, [int]$MaxAttempts = 4) {
+    $delays = @(5, 10, 20, 30)
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
+            # Clean up only this script's temporary download in the local app-data folder.
+            if (Test-Path -LiteralPath $OutFile) {
+                Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+            }
+            Invoke-WebRequest -Uri $Uri -OutFile $OutFile -UseBasicParsing -TimeoutSec 90 -ErrorAction Stop
+            if (-not (Test-Path -LiteralPath $OutFile) -or (Get-Item -LiteralPath $OutFile).Length -lt 20) {
+                throw "Download was empty or incomplete: $Uri"
+            }
+            return
+        } catch {
+            $message = $_.Exception.Message
+            if (Test-Path -LiteralPath $OutFile) {
+                Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+            }
+            if ($attempt -ge $MaxAttempts) {
+                throw "Download failed after $MaxAttempts attempts: $Uri. Last error: $message"
+            }
+            $delay = $delays[$attempt - 1]
+            Write-Log "Download attempt $attempt/$MaxAttempts failed for $Uri: $message. Retrying in $delay seconds."
+            Start-Sleep -Seconds $delay
+        }
+    }
+}
+
 if ($Install) {
     $scriptPath = $PSCommandPath
     if (-not $scriptPath) { throw 'Could not determine the installed sync script path.' }
