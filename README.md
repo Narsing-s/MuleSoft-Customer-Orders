@@ -2,30 +2,28 @@
 
 Mule 4.9.x + Anypoint Studio 7.21 + Java 17 starter integration.
 
-## Automatic local file generation every 2 minutes
+## Automatic local file generation through GitHub Actions
 
-The repository can generate a fresh Excel workbook and XML file directly on your Windows computer every 2 minutes. This uses Windows Task Scheduler, not a GitHub-hosted runner, because a hosted workflow cannot write directly to your computer's C: drive.
+The workflow `.github/workflows/generate-customer-order-files.yml` runs on a **Windows self-hosted GitHub Actions runner** and writes the files directly to:
 
-Default folders:
+- Input: `C:\\Users\\91938\\Desktop\\mulesoft file processing input data`
 
-- Input: `C:\Users\91938\Desktop\mulesoft file processing input data`
-- Output: `C:\Users\91938\Desktop\mulesoft file processing output`
+It creates genuine files:
+- `customers_orders.xlsx` — Customers and Orders worksheets.
+- `customers_orders.xml` — a well-formed XML document with Customers and Orders records.
 
-One-time setup:
+**One-time Windows setup is required.** GitHub-hosted runners cannot access your PC's C: drive. To let a workflow write there, register your Windows PC as a self-hosted runner:
 
-1. Download or clone this repository to your Windows 11 computer.
-2. Install Python 3.10+ and ensure `python` is available in Command Prompt.
-3. Double-click `setup_windows.bat`. It creates the folders, installs openpyxl, generates the first file pair, and registers a Windows scheduled task named `MuleSoftCustomerOrdersFileGenerator`.
-4. Leave the repository folder in place. Windows Task Scheduler runs the generator every 2 minutes and recreates:
-   - `customers_orders.xlsx` — Customers and Orders worksheets.
-   - `customers_orders.xml` — matching Customers and Orders records.
-5. MuleSoft's File Listener can pick up each newly generated pair when the Mule application is running.
+1. On your Windows PC, install Python 3.10+ and ensure `python` works in PowerShell.
+2. Open this repository on GitHub, then go to **Settings → Actions → Runners → New self-hosted runner**.
+3. Select **Windows** and **x64**. Follow GitHub's displayed instructions to download and extract the runner into a persistent folder, for example `C:\\actions-runner`.
+4. In PowerShell opened in that runner folder, run the exact `config.cmd` command GitHub displays. The registration token is temporary; obtain it from GitHub's page and do not save it in this repository or share it.
+5. Complete runner configuration. For automatic operation after reboot, install and start the runner as a Windows service using the commands shown by GitHub (typically `.\svc install` and `.\svc start` from an elevated PowerShell window).
+6. Keep the computer powered on and connected to the internet. The workflow then runs on the PC and writes both files directly into the input folder.
 
-You can install or reinstall only the scheduled task by double-clicking `install_auto_generator.bat`. To stop automatic generation, double-click `uninstall_auto_generator.bat`. Generation logs are written to `generator\generator.log`.
+The workflow schedule is every **5 minutes**, which is GitHub Actions' minimum supported scheduled interval. It also runs on pushes to `main` and can be started manually from the Actions tab. The workflow verifies that the XLSX exists and parses the XML after generation.
 
-The task runs under the Windows account that installs it. Keep the repository folder available and ensure that account can write to the input folder. The computer must be powered on and Windows Task Scheduler must be running; the task does not run while the computer is shut down.
-
-To generate a pair manually, run `generator\run_generator.bat`. The Python script writes temporary files and renames them after completion.
+Do not put runner registration tokens, passwords, or other credentials in repository files. The runner service runs under its configured Windows account, which must have write access to the input folder.
 
 ## Optional: process the files with MuleSoft and MySQL
 
