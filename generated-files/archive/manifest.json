@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "versions": [
+    {
+      "id": "20261125T151833758771Z",
+      "generatedAtUtc": "2026-11-25T15:18:33.758771+00:00",
+      "xlsx": "archive/customers_orders_20261125T151833758771Z.xlsx",
+      "xml": "archive/customers_orders_20261125T151833758771Z.xml"
+    }
+  ]
+}
