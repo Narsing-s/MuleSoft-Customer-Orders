@@ -26,7 +26,10 @@ def atomic_replace(temp: Path, destination: Path):
     os.replace(temp, destination)
 
 def create_excel(destination: Path):
+    from datetime import datetime, timezone
+    generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     wb = Workbook()
+    wb.properties.description = f"Generated at {generated_at}"
     ws = wb.active
     ws.title = "Customers"
     headers = list(CUSTOMERS[0])
@@ -51,7 +54,9 @@ def create_excel(destination: Path):
     atomic_replace(temp, destination)
 
 def create_xml(destination: Path):
-    root = ET.Element("CustomerOrders")
+    from datetime import datetime, timezone
+    generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    root = ET.Element("CustomerOrders", generatedAt=generated_at)
     customer_root = ET.SubElement(root, "Customers")
     for row in CUSTOMERS:
         node = ET.SubElement(customer_root, "Customer")
