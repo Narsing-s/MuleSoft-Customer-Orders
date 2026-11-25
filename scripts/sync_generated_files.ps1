@@ -8,6 +8,7 @@ $taskName = 'MuleSoftCustomerOrdersCloudSync'
 $inputFolder = 'C:\Users\91938\Desktop\mulesoft file processing input data'
 $logFolder = Join-Path $env:LOCALAPPDATA 'MuleSoftCustomerOrders'
 $logFile = Join-Path $logFolder 'cloud-sync.log'
+$stateFile = Join-Path $logFolder 'last-synced-hashes.json'
 $baseUrl = 'https://raw.githubusercontent.com/Narsing-s/MuleSoft-Customer-Orders/main/generated-files'
 
 New-Item -ItemType Directory -Path $inputFolder -Force | Out-Null
@@ -34,20 +35,8 @@ function Test-Xml([string]$Path) {
     return ($document.DocumentElement.LocalName -eq 'CustomerOrders')
 }
 
-function Download-AndValidate([string]$Name, [string]$Kind) {
-    $destination = Join-Path $inputFolder $Name
-    $temp = $destination + '.download'
-    Invoke-WebRequest -Uri "$baseUrl/$Name" -OutFile $temp -UseBasicParsing -TimeoutSec 60
-    if (-not (Test-Path $temp) -or (Get-Item $temp).Length -lt 20) {
-        throw "Downloaded file is missing or too small: $Name"
-    }
-    if ($Kind -eq 'xlsx' -and -not (Test-Xlsx $temp)) {
-        throw "Downloaded XLSX is not a valid ZIP-based workbook: $Name"
-    }
-    if ($Kind -eq 'xml' -and -not (Test-Xml $temp)) {
-        throw "Downloaded XML does not have the expected CustomerOrders root: $Name"
-    }
-    Move-Item -LiteralPath $temp -Destination $destination -Force
+function Get-Sha256([string]$Path) {
+    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
 }
 
 if ($Install) {
@@ -60,27 +49,79 @@ if ($Install) {
     Write-Log "Installed scheduled sync. Destination: $inputFolder"
     & $powerShellExe -NoProfile -ExecutionPolicy Bypass -File $scriptPath -Run
     if ($LASTEXITCODE -ne 0) { throw 'Initial sync failed. See cloud-sync.log.' }
-    Write-Host "Automatic cloud-to-PC sync installed. Files are saved directly to: $inputFolder"
-    Write-Host 'The task checks GitHub every 2 minutes. Only the latest Excel and XML files are kept in the destination.'
+    Write-Host "Automatic cloud-to-PC sync installed. New timestamped files are saved directly to: $inputFolder"
+    Write-Host 'Existing files are never overwritten or deleted.'
     exit 0
 }
 
+$downloads = @()
 try {
-    Download-AndValidate 'customers_orders.xlsx' 'xlsx'
-    Download-AndValidate 'customers_orders.xml' 'xml'
+    $xlsxTemp = Join-Path $logFolder 'customers_orders.xlsx.download'
+    $xmlTemp = Join-Path $logFolder 'customers_orders.xml.download'
+    $downloads = @($xlsxTemp, $xmlTemp)
 
-    # Remove the previously-created archive directory only when it is empty.
-    $oldArchive = Join-Path $inputFolder 'archive'
-    if ((Test-Path $oldArchive) -and -not (Get-ChildItem -LiteralPath $oldArchive -Force | Select-Object -First 1)) {
-        Remove-Item -LiteralPath $oldArchive -Force
+    Invoke-WebRequest -Uri "$baseUrl/customers_orders.xlsx" -OutFile $xlsxTemp -UseBasicParsing -TimeoutSec 60
+    Invoke-WebRequest -Uri "$baseUrl/customers_orders.xml" -OutFile $xmlTemp -UseBasicParsing -TimeoutSec 60
+
+    foreach ($path in $downloads) {
+        if (-not (Test-Path $path) -or (Get-Item $path).Length -lt 20) {
+            throw "Downloaded file is missing or too small: $path"
+        }
+    }
+    if (-not (Test-Xlsx $xlsxTemp)) {
+        throw 'Downloaded XLSX is not a valid ZIP-based workbook.'
+    }
+    if (-not (Test-Xml $xmlTemp)) {
+        throw 'Downloaded XML does not have the expected CustomerOrders root.'
     }
 
-    Write-Log "SUCCESS: synchronized customers_orders.xlsx and customers_orders.xml directly to $inputFolder"
+    $xlsxHash = Get-Sha256 $xlsxTemp
+    $xmlHash = Get-Sha256 $xmlTemp
+    $previous = $null
+    if (Test-Path $stateFile) {
+        try { $previous = Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json } catch { $previous = $null }
+    }
+
+    if ($previous -and $previous.xlsx -eq $xlsxHash -and $previous.xml -eq $xmlHash) {
+        Write-Log 'No new cloud file version. Existing local files were left untouched.'
+        Write-Host 'No new version found. All existing files were left untouched.'
+        exit 0
+    }
+
+    $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+    $xlsxName = "customers_orders_$stamp.xlsx"
+    $xmlName = "customers_orders_$stamp.xml"
+    $xlsxDestination = Join-Path $inputFolder $xlsxName
+    $xmlDestination = Join-Path $inputFolder $xmlName
+
+    $suffix = 1
+    while ((Test-Path $xlsxDestination) -or (Test-Path $xmlDestination)) {
+        $candidate = "{0}_{1:D2}" -f $stamp, $suffix
+        $xlsxName = "customers_orders_$candidate.xlsx"
+        $xmlName = "customers_orders_$candidate.xml"
+        $xlsxDestination = Join-Path $inputFolder $xlsxName
+        $xmlDestination = Join-Path $inputFolder $xmlName
+        $suffix++
+    }
+
+    # Move only newly downloaded temporary files to fresh, uniquely named files.
+    # No existing destination file or folder is overwritten, moved, or deleted.
+    [System.IO.File]::Move($xlsxTemp, $xlsxDestination)
+    [System.IO.File]::Move($xmlTemp, $xmlDestination)
+
+    $state = [ordered]@{ xlsx = $xlsxHash; xml = $xmlHash; savedAt = (Get-Date).ToString('o') }
+    $state | ConvertTo-Json | Set-Content -LiteralPath $stateFile -Encoding UTF8
+
+    Write-Log "SUCCESS: saved new version as $xlsxName and $xmlName in $inputFolder. Existing files preserved."
+    Write-Host "Saved new files: $xlsxName and $xmlName"
+    Write-Host "Destination: $inputFolder"
+    Write-Host 'All previous files and folders were preserved.'
 } catch {
     Write-Log "ERROR: $($_.Exception.Message)"
-    foreach ($name in @('customers_orders.xlsx', 'customers_orders.xml')) {
-        $temp = Join-Path $inputFolder ($name + '.download')
-        if (Test-Path $temp) { Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue }
+    foreach ($path in $downloads) {
+        if ($path -and (Test-Path $path)) {
+            Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+        }
     }
     exit 1
 }
