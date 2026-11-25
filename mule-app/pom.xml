@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+ xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+ <modelVersion>4.0.0</modelVersion>
+ <groupId>com.narsing.integration</groupId>
+ <artifactId>mule-customer-orders-file-processing</artifactId>
+ <version>1.0.0</version>
+ <packaging>mule-application</packaging>
+ <name>MuleSoft Customer Orders File Processing</name>
+ <properties>
+  <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  <app.runtime>4.9.0</app.runtime>
+  <mule.maven.plugin.version>4.3.0</mule.maven.plugin.version>
+ </properties>
+ <build><plugins>
+  <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-clean-plugin</artifactId><version>3.2.0</version></plugin>
+  <plugin><groupId>org.mule.tools.maven</groupId><artifactId>mule-maven-plugin</artifactId><version>${mule.maven.plugin.version}</version><extensions>true</extensions></plugin>
+ </plugins></build>
+ <dependencies>
+  <dependency><groupId>org.mule.connectors</groupId><artifactId>mule-file-connector</artifactId><version>1.5.2</version><classifier>mule-plugin</classifier></dependency>
+  <dependency><groupId>org.mule.connectors</groupId><artifactId>mule-db-connector</artifactId><version>1.14.10</version><classifier>mule-plugin</classifier></dependency>
+  <dependency><groupId>com.mysql</groupId><artifactId>mysql-connector-j</artifactId><version>8.4.0</version><scope>runtime</scope></dependency>
+ </dependencies>
+</project>
