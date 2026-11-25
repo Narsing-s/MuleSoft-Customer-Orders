@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core"
+ xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+ xmlns:file="http://www.mulesoft.org/schema/mule/file"
+ xmlns:db="http://www.mulesoft.org/schema/mule/db"
+ xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+ xsi:schemaLocation="
+ http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+ http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+ http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+ http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd">
+
+ <configuration-properties file="application.properties"/>
+
+ <file:config name="Input_File_Config"/>
+ <file:config name="Output_File_Config"><file:connection workingDir="${output.dir}"/></file:config>
+
+ <db:config name="MySQL_Database_Config">
+  <db:my-sql-connection host="${mysql.host}" port="${mysql.port}" user="${mysql.username}" password="${mysql.password}" database="${mysql.database}"/>
+ </db:config>
+
+ <flow name="customer-order-file-listener-flow">
+  <file:listener config-ref="Input_File_Config" directory="${input.dir}" moveToDirectory="${archive.dir}" autoDelete="false">
+   <scheduling-strategy><fixed-frequency frequency="5" timeUnit="SECONDS"/></scheduling-strategy>
+  </file:listener>
+  <set-variable variableName="sourceFileName" value="#[attributes.fileName]"/>
+  <set-variable variableName="fileExtension" value="#[lower((attributes.fileName splitBy '.')[-1])]"/>
+  <set-variable variableName="outputBaseName" value="#[(attributes.fileName splitBy '.')[0]]"/>
+  <logger level="INFO" message="#['Processing ' ++ vars.sourceFileName]"/>
+
+  <try>
+   <ee:transform doc:name="Normalize XLSX or XML">
+    <ee:variables>
+     <ee:set-variable variableName="normalized"><![CDATA[
+%dw 2.0
+output application/java
+var ext = vars.fileExtension
+var source = if (ext == "xlsx") read(payload, "application/xlsx") else if (ext == "xml") read(payload, "application/xml") else error("Unsupported input file: " ++ ext)
+var customers = if (ext == "xlsx") source.Customers else source.CustomerOrders.Customers.Customer
+var orders = if (ext == "xlsx") source.Orders else source.CustomerOrders.Orders.Order
+---
+{
+ customers: customers map (c) -> {
+  customerId: c.customerId as String,
+  firstName: c.firstName as String,
+  lastName: c.lastName as String,
+  email: c.email as String,
+  phone: (c.phone default "") as String,
+  city: (c.city default "") as String
+ },
+ orders: orders map (o) -> {
+  orderId: o.orderId as String,
+  customerId: o.customerId as String,
+  orderDate: o.orderDate as String,
+  status: o.status as String,
+  totalAmount: o.totalAmount as Number
+ }
+}
+     ]]></ee:set-variable>
+    </ee:variables>
+   </ee:transform>
+
+   <db:bulk-insert config-ref="MySQL_Database_Config" doc:name="Upsert customers">
+    <db:sql><![CDATA[
+INSERT INTO customers (customer_id, first_name, last_name, email, phone, city)
+VALUES (:customerId, :firstName, :lastName, :email, :phone, :city)
+ON DUPLICATE KEY UPDATE first_name=VALUES(first_name), last_name=VALUES(last_name), email=VALUES(email), phone=VALUES(phone), city=VALUES(city)
+    ]]></db:sql>
+    <db:input-parameters><![CDATA[#[vars.normalized.customers]]]></db:input-parameters>
+   </db:bulk-insert>
+
+   <db:bulk-insert config-ref="MySQL_Database_Config" doc:name="Upsert orders">
+    <db:sql><![CDATA[
+INSERT INTO orders (order_id, customer_id, order_date, status, total_amount)
+VALUES (:orderId, :customerId, :orderDate, :status, :totalAmount)
+ON DUPLICATE KEY UPDATE customer_id=VALUES(customer_id), order_date=VALUES(order_date), status=VALUES(status), total_amount=VALUES(total_amount)
+    ]]></db:sql>
+    <db:input-parameters><![CDATA[#[vars.normalized.orders]]]></db:input-parameters>
+   </db:bulk-insert>
+
+   <set-payload value="#[write({status:'SUCCESS', sourceFile:vars.sourceFileName, customerCount:sizeOf(vars.normalized.customers), orderCount:sizeOf(vars.normalized.orders), processedAt:now(), data:vars.normalized}, 'application/json', {indent:true})]"/>
+   <file:write config-ref="Output_File_Config" path="#['processed/' ++ vars.outputBaseName ++ '.processed.json']" mode="OVERWRITE"/>
+   <logger level="INFO" message="#['Completed ' ++ vars.sourceFileName]"/>
+
+   <error-handler>
+    <on-error-continue type="ANY" logException="true">
+     <set-payload value="#[write({status:'FAILED', sourceFile:vars.sourceFileName, failedAt:now(), errorType:error.errorType as String, description:error.description}, 'application/json', {indent:true})]"/>
+     <file:write config-ref="Output_File_Config" path="#['failed/' ++ vars.outputBaseName ++ '.failed.json']" mode="OVERWRITE"/>
+     <logger level="ERROR" message="#['Failed ' ++ vars.sourceFileName ++ ': ' ++ error.description]"/>
+    </on-error-continue>
+   </error-handler>
+  </try>
+ </flow>
+</mule>
