@@ -1,8 +1,5 @@
 from pathlib import Path
-from datetime import datetime, timezone
-import json
 import os
-import shutil
 import xml.etree.ElementTree as ET
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
@@ -73,45 +70,9 @@ def create_xml(destination: Path):
 
 def main():
     INPUT_DIR.mkdir(parents=True, exist_ok=True)
-    archive_dir = INPUT_DIR / "archive"
-    archive_dir.mkdir(exist_ok=True)
-
-    # One UTC identifier groups the Excel/XML pair from this generation.
-    generated_at = datetime.now(timezone.utc)
-    version_id = generated_at.strftime("%Y%m%dT%H%M%S%fZ")
-    latest_xlsx = INPUT_DIR / "customers_orders.xlsx"
-    latest_xml = INPUT_DIR / "customers_orders.xml"
-    archive_xlsx_name = f"customers_orders_{version_id}.xlsx"
-    archive_xml_name = f"customers_orders_{version_id}.xml"
-    archive_xlsx = archive_dir / archive_xlsx_name
-    archive_xml = archive_dir / archive_xml_name
-
-    create_excel(latest_xlsx)
-    create_xml(latest_xml)
-    shutil.copy2(latest_xlsx, archive_xlsx)
-    shutil.copy2(latest_xml, archive_xml)
-
-    manifest_path = archive_dir / "manifest.json"
-    entries = []
-    if manifest_path.exists():
-        try:
-            entries = json.loads(manifest_path.read_text(encoding="utf-8")).get("versions", [])
-        except (json.JSONDecodeError, AttributeError, TypeError):
-            entries = []
-    entries.append({
-        "id": version_id,
-        "generatedAtUtc": generated_at.isoformat(),
-        "xlsx": f"archive/{archive_xlsx_name}",
-        "xml": f"archive/{archive_xml_name}",
-    })
-    manifest = {"schemaVersion": 1, "versions": entries}
-    temp_manifest = archive_dir / "manifest.writing.json"
-    temp_manifest.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    atomic_replace(temp_manifest, manifest_path)
-
-    print(f"Created latest files in {INPUT_DIR}")
-    print(f"Archived generation {version_id} in {archive_dir}")
-    print(f"Manifest contains {len(entries)} generation(s)")
+    create_excel(INPUT_DIR / "customers_orders.xlsx")
+    create_xml(INPUT_DIR / "customers_orders.xml")
+    print(f"Created customers_orders.xlsx and customers_orders.xml directly in {INPUT_DIR}")
 
 if __name__ == "__main__":
     main()
