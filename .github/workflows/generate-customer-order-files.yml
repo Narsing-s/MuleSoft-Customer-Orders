@@ -58,6 +58,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: customer-order-files
-          path: |\n            generated-files/customers_orders.xlsx\n            generated-files/customers_orders.xml
+          path: |
+            generated-files/customers_orders.xlsx
+            generated-files/customers_orders.xml
           if-no-files-found: error
           retention-days: 7
